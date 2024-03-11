@@ -12,9 +12,13 @@ while True:
   if a < 0 or a >= len(data) or b < 0 or b >= len(data):
     print("Access out of bounds:", a, b)
     break
+  #if pc in [410, 437, 456, 465, 504, 534, 541, 554, 575]:
+  #  print(pc, data[17], data[18], data[405], data[207])
   data[b] -= data[a]
   if data[b] <= 0:
     pc = c
   else:
     pc += 3
+print(data[:32])
+print(data[584:650])
 print(pc)

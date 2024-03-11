@@ -151,6 +151,219 @@ beginning of the loop.
 
 ================================================================================
 
+We can now start writing a better bootstrap assembler. We would like the
+following features:
+- Ability to specify negative numbers. While it is not critical to have them,
+  we may need negative numbers in data positions or to perform IO.
+- Ability to specify PC-relative addresses, especially for fallthrough.
+- Simple one-character labels.
+- Line comments, so that we need less to be careful about not using slash.
+
+We use the beginning of the memory as registers. We have several useful
+global variables, HERE which holds the first free address to write code in,
+and POS, the current scanning position.
+
+ Location |   Contents
+----------+--------------
+        0 | Constant 0
+        1 | Constant 1
+        2 | Constant -1
+       16 | Variable HERE
+       17 | Variable POS
+       18 | Variable LAST
+
+Load constants:
+124| 0/Z 0/Z 127/next
+127| 2/const-1 2/const-1 131/next 1/
+130| 130/ 2/const-1 134/next
+134| 1/const1 1/const1 137/next
+137| 2/const-1 1/const1 140/next
+
+140| 16/HERE 16/HERE 143/next
+143| 100/oldA 0/Z 146/next
+146| 0/ 16/HERE 149/next
+149| 0/Z 0/Z 152/next
+
+152| 17/POS 17/POS 155/next
+155| 46/oldB 0/Z 158/next
+158| 0/ 17/POS 161/next
+161| 0/Z 0/Z 164/next
+164| 2/const-1 17/POS 167/next
+
+167| 0/Z 0/Z 209/
+
+Subroutine jumps to subroutine at location S are done by storing -R in location S-1,
+where R is the return address.
+
+; Location 171 (nextchar): read a character at POS and store it in LAST
+170| 0/retaddr # Return address stored here
+; Copy POS -> loc 186
+171| 186/readloc 186/readloc 174/next
+174| 17/POS 0/Z 177/next
+177| 0/Z 186/readloc 180/next
+180| 0/Z 0/Z 183/next
+; Copy *186 -> LAST
+183| 18/LAST 18/LAST 186/next
+186| 0/readloc 0/Z 189/next
+189| 0/Z 18/LAST 192/next
+192| 0/Z 0/Z 195/next
+; POS += 1
+195| 2/const-1 17/POS 198/next
+; Return
+198| 206/ret 206/ret 201/next
+201| 170/retaddr 206/ret 204/next
+204| 170/retaddr 170/retaddr 0/ret
+
+; Save copies of HERE and POS 
+207| 0/HERE_BAK 0/POS_BAK
+209| 16/HERE 207/HERE_BAK 212/next
+212| 17/POS 208/POS_BAK 215/next
+215| 0/Z 0/Z 300/
+
+; Storage for label array
+218| ///// /////  ///// /////  ///// /////  ///// /////
+248| ///// /////  ///// /////  ///// /////
+
+; Definitions of constants
+288| 46/10/66/
+291| 59/217/9/
+294| 44/283//
+297| ///
+
+; Label computation loop
+300| 303/retaddr 170/171/nextchar 304/next
+304| 288/const46 18/LAST 300/loop
+307| 1/const1 18/LAST 325/increment
+310| 289/const10 18/LAST 300/loop
+313| 1/const1 18/LAST 331/newlabel
+316| 1/const1 18/LAST 377/comment
+319| 290/const66 18/LAST 300/loop
+322| 0/Z 0/Z 390/exit
+; increment: LAST was a slash: increment HERE
+325| 2/const-1 16/HERE 328/next
+328| 0/Z 0/Z 300/loop
+; newlabel
+331| 334/retaddr 170/171/nextchar 335/next
+335| 291/const59 18/LAST 300/loop
+338| 18/LAST 0/Z 341/next
+341| 292/const217 0/Z 344/next
+; zero position to write then write HERE inside
+344| 368/labelpos 368/labelpos 347/next
+347| 369/labelpos 369/labelpos 350/next
+350| 372/labelpos 372/labelpos 353/next
+353| 0/Z 368/labelpos 356/next
+356| 0/Z 369/labelpos 359/next
+359| 0/Z 372/labelpos 362/next
+362| 0/Z 0/Z 365/next
+365| 16/HERE 0/Z 368/next
+368| 0/labelpos 0/labelpos 371/next
+371| 0/Z 0/labelpos 374/next
+374| 0/Z 0/Z 300/loop
+; comment
+377| 380/retaddr 170/171/nextchar 381/next
+381| 293/const9 18/LAST 377/comment
+384| 1/const1 18/LAST 300/loop
+387| 0/Z 0/Z 377/comment
+
+; exit, all labels have been computed
+; restore HERE and POS
+390| 16/HERE 16/HERE 393/next
+393| 17/POS 17/POS 396/next
+396| 207/HERE_BAK 16/HERE 399/next
+399| 208/POS_BAK 17/POS 402/next
+
+; Compilation loop
+
+; clear
+402| 405/V 405/V 406/next 0/
+; loop
+406| 409/retaddr 170/171/nextchar 410/next
+410| 294/const44 18/LAST 402/clear
+413| 1/const1 18/LAST 437/negate
+416| 1/const1 18/LAST 456/addhere
+419| 1/const1 18/LAST 465/increment
+422| 289/const10 18/LAST 504/digit
+425| 1/const1 18/LAST 534/newlabel
+428| 1/const1 18/LAST 541/comment
+431| 290/const66 18/LAST 554/addlabel
+434| 0/Z 0/Z 578/exit
+
+; negate: V <- -V
+437| 405/V 0/Z 440/next
+440| 443/TMP 443/TMP 444/next 0/
+444| 0/Z 443/TMP 447/next
+447| 405/V 405/V 450/next
+450| 443/TMP 405/V 453/next
+453| 0/Z 0/Z 406/loop
+
+; addhere: V <- V + POS
+456| 16/HERE 0/Z 459/next
+459| 0/Z 405/V 462/next
+462| 0/Z 0/Z 406/loop
+
+; increment
+; zero HERE then write V
+465| 492/herepos 492/herepos 468/next
+486| 493/herepos 493/herepos 471/next
+471| 496/herepos 496/herepos 474/next
+474| 16/HERE 0/Z 477/next
+477| 0/Z 492/herepos 480/next
+480| 0/Z 493/herepos 483/next
+483| 0/Z 496/herepos 486/next
+486| 0/Z 0/Z 489/next
+489| 405/V 0/Z 492/next
+492| 0/herepos 0/herepos 495/next
+495| 0/Z 0/herepos 498/next
+; increment HERE
+498| 2/const-1 16/HERE 501/next
+501| 0/Z 0/Z 402/clear
+
+; digit
+; at this point, we have -9 <= LAST <= 0,
+; we need to compute V <- 10*V + LAST + 9
+504| 405/V 0/Z 507/next ; now Z = -v
+507| 0/Z 405/V 510/next ; now V = 2v
+510| 405/V 0/Z 513/next ; now Z = -3v
+513| 0/Z 405/V 516/next ; now V = 5v
+516| 0/Z 0/Z 519/next
+519| 405/V 0/Z 522/next
+522| 18/LAST 0/Z 525/next
+525| 293/const9 0/Z 528/next
+528| 0/Z 405/V 531/next
+531| 0/Z 0/Z 406/loop
+
+; newlabel
+534| 537/retaddr 170/171/nextchar 538/next
+538| 0/Z 0/Z 402/clear
+
+; comment
+541| 544/retaddr 170/171/nextchar 545/next
+545| 293/const9 18/LAST 541/comment
+548| 1/const1 18/LAST 402/clear
+551| 0/Z 0/Z 541/comment
+
+; addlabel
+; at this point, LAST = pos in label array - 65
+; so we need to compute 218 + LAST + 65 = 283 + LAST
+554| 18/LAST 0/Z 557/next
+557| 295/const283 0/Z 560/next
+560| 569/labelpos 569/labelpos 563/next
+563| 0/Z 569/labelpos 566/next
+566| 0/Z 0/Z 569/next
+569| 0/labelpos 0/Z 572/next
+572| 0/Z 405/V 575/next
+575| 0/Z 0/Z 406/loop
+
+; jump
+578| 207/HERE_BAK 583/jump 581/next
+581| 0/Z 0/Z 0/jump
+
+~
+
+0/Z 0/Z 100000000/
+
+:A /A/B/1C/ :B 3-/./// :C //// :D //// ; //// ~
+:E //// :F //// :G //// :H ////
 
 
-32/ 32/ 100000/ ~
+~
