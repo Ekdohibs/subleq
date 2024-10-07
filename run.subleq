@@ -21,7 +21,7 @@ The algorithm being executed is the following:
       V <- 0
     elif 48 <= U < 58: # (U is a digit between 0 and 9)
       V <- 10 * V + (U - 48)
-    elif U >= 127:     # (U is the tilde character)
+    elif U >= 126:     # (U is the tilde character)
       jump to FIRST_POS
     else:
       V <- 0
@@ -159,6 +159,25 @@ following features:
 - Simple one-character labels.
 - Line comments, so that we need less to be careful about not using slash.
 
+The syntax of the new bootstrap assembler is the following:
+- Line comments start with ';'.
+- One-character labels declared by :[char]. Only characters in the range
+  from '<' to '}' are allowed as label names, so this makes 66 possible labels.
+  A label references the position of the next compiled value.
+- The slash character, which compiles the V variable as previously in the next
+  compilation position.
+- Any character up to ',' will simply reset V to 0.
+- The '-' character will perform V <- -V.
+- The '.' character will add the position where the next instruction will be
+  compiled to V.
+- Any digit 0-9 will do V <- 10*V + [digit].
+- Finally, any character which is a possibly valid label will add the position
+  of that label to V.
+
+
+
+
+
 We use the beginning of the memory as registers. We have several useful
 global variables, HERE which holds the first free address to write code in,
 and POS, the current scanning position.
@@ -179,11 +198,13 @@ Load constants:
 134| 1/const1 1/const1 137/next
 137| 2/const-1 1/const1 140/next
 
+Initialise HERE with variable A (first free position for compilation)
 140| 16/HERE 16/HERE 143/next
 143| 100/oldA 0/Z 146/next
 146| 0/ 16/HERE 149/next
 149| 0/Z 0/Z 152/next
 
+Initialise POS with variable B (position in the file)
 152| 17/POS 17/POS 155/next
 155| 46/oldB 0/Z 158/next
 158| 0/ 17/POS 161/next
@@ -224,7 +245,7 @@ where R is the return address.
 218| ///// /////  ///// /////  ///// /////  ///// /////
 248| ///// /////  ///// /////  ///// /////
 
-; Definitions of constants
+; Definitions of constants (with space for a few more)
 288| 46/10/66/
 291| 59/217/9/
 294| 44/283//
@@ -360,10 +381,290 @@ where R is the return address.
 
 ~
 
-0/Z 0/Z 100000000/
+; At this point we have a functional, if minimalistic, assembler.
+; Let's use it to write a small Forth kernel.
 
-:A /A/B/1C/ :B 3-/./// :C //// :D //// ; //// ~
-:E //// :F //// :G //// :H ////
+; We keep the previous array of variables, and add some new ones.
+;  Location |   Contents
+; ----------+--------------
+;         0 | Constant 0
+;         1 | Constant 1
+;         2 | Constant -1
+;         3 | Variable TMP
+;         4 | Variable R1
+;         5 | Variable R2
+;        16 | Variable HERE
+;        17 | Variable POS
+;        18 | Variable LAST
+;        19 | Variable SP
+;        20 | Variable RP
+;        21 | Variable A
+;        22 | Variable B
+;        23 | Variable C
+;        24 | Variable I
+;        25 | Variablt DICT
 
+; This is the entry point; jump to the start of the code.
+0/Z 0/Z E/
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; We start by allocating the normal (S) and return (R) stacks,
+; 256 words each.
+; Variables SP and RP should point to the first free location (S and R at the beginning).
+:S
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+:R
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+//////// //////// //////// ////////
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Calling convention
+; A function X is called by jumping to location X, and storing the
+; opposite of the return address at location X-1, which can be assumed
+; to hold 0, as shown below:
+; ```
+; 3./ 1-X/ X/ [return address]/
+; ```
+;
+; Inside the function, returning is done by computing the opposite
+; of the return address, and jumping to it, making sure to reset it
+; to zero:
+; ```
+; 8./ret 7./ret 1./next
+; 1-X/ 4./ret 1./next
+; 1-X/ 1-X/ 0/ret
+; ```
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; @ -> Do R1 := -mem[-R1]
+0/retaddr :@
+
+9./loadptr 8./loadptr 1./next
+4/R1 5./loadptr 1./next
+4/R1 4/R1 1./next
+0/loadptr 4/R1 1./next
+
+; Return
+8./ret 7./ret 1./next
+1-@/retaddr 4./ret 1./next
+1-@/retaddr 1-@/retaddr 0/ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; > -> Do mem[-R1] <- -R2
+0/retaddr :>
+
+; TMP <- -R2
+3/TMP 3/TMP 1./next
+5/R2 3/TMP 1./next
+
+; Indirect store *(-R1) <- TMP
+12./storeptr1 11./storeptr1 1./next
+16./storeptr2 15./storeptr2 1./next
+4/R1 5./storeptr1 1./next
+4/R1 9./storeptr2 1./next
+0/storeptr1 3/TMP 1./next
+3/TMP 0/Z 1./next
+0/Z 0/storeptr2 1./next
+0/Z 0/Z 1./next
+
+; Return
+8./ret 7./ret 1./next
+1->/retaddr 4./ret 1./next
+1->/retaddr 1->/retaddr 0/ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; X -> pop variable A from normal stack
+0/retaddr :X
+
+; ; Clear A
+; 21/A 21/A 1./next
+; ; Decrement SP
+; 1/const1 19/SP 1./next
+; 
+; ; Indirect load *SP -> -Z
+; 12./loadptr 11./loadptr 1./next
+; 19/SP 0/Z 1./next
+; 0/Z 5./loadptr 1./next
+; 0/Z 0/Z 1./next
+; 0/loadptr 0/Z 1./next
+; 
+; ; A <- -Z
+; 0/Z 21/A 1./next
+; ; Clear Z
+; 0/Z 0/Z 1./next
+
+
+; Clear A
+21/A 21/A 1./next
+; Decrement SP
+1/const1 19/SP 1./next
+
+; Clear R1
+4/R1 4/R1 1./next
+19/SP 4/R1 1./next
+3./ 1-@/ @/ 1./ ; indirect_load R1 := -mem[-R1]
+4/R1 21/A 1./next
+ 
+
+; Return
+8./ret 7./ret 1./next
+1-X/retaddr 4./ret 1./next
+1-X/retaddr 1-X/retaddr 0/ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; Y -> pop variable A from return stack
+0/retaddr :Y
+
+; Clear A
+21/A 21/A 1./next
+; Decrement RP
+1/const1 20/RP 1./next
+
+; Indirect load *RP -> -Z
+12./loadptr 11./loadptr 1./next
+20/RP 0/Z 1./next
+0/Z 5./loadptr 1./next
+0/Z 0/Z 1./next
+0/loadptr 0/Z 1./next
+
+; A <- -Z
+0/Z 21/A 1./next
+; Clear Z
+0/Z 0/Z 1./next
+
+; Return
+8./ret 7./ret 1./next
+1-Y/retaddr 4./ret 1./next
+1-Y/retaddr 1-Y/retaddr 0/ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; x -> push variable A to normal stack
+0/retaddr :x
+
+
+4/R1 4/R1 1./next
+19/SP 4/R1 1./next
+5/R2 5/R2 1./next
+21/A 5/R2 1./next
+3./ 1->/ >/ 1./ ; indirect_store mem[-R1] := -R2
+
+; Copy A -> TMP
+; 3/TMP 3/TMP 1./next
+; 21/A 0/Z 1./next
+; 0/Z 3/TMP 1./next
+; 0/Z 0/Z 1./next
+
+; Indirect store *SP <- TMP
+; 18./storeptr1 17./storeptr1 1./next
+; 22./storeptr2 21./storeptr2 1./next
+; 19/SP 0/Z 1./next
+; 0/Z 8./storeptr1 1./next
+; 0/Z 12./storeptr2 1./next
+; 0/Z 0/Z 1./next
+; 0/storeptr1 3/TMP 1./next
+; 3/TMP 0/Z 1./next
+; 0/Z 0/storeptr2 1./next
+; 0/Z 0/Z 1./next
+
+; Increment SP
+2/const-1 19/SP 1./next
+
+; Return
+8./ret 7./ret 1./next
+1-x/retaddr 4./ret 1./next
+1-x/retaddr 1-x/retaddr 0/ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; y -> push variable A to return stack
+0/retaddr :y
+
+; Copy A -> TMP
+3/TMP 3/TMP 1./next
+21/A 0/Z 1./next
+0/Z 3/TMP 1./next
+0/Z 0/Z 1./next
+
+; Indirect store *RP <- TMP
+18./storeptr1 17./storeptr1 1./next
+22./storeptr2 21./storeptr2 1./next
+20/RP 0/Z 1./next
+0/Z 8./storeptr1 1./next
+0/Z 12./storeptr2 1./next
+0/Z 0/Z 1./next
+0/storeptr1 3/TMP 1./next
+3/TMP 0/Z 1./next
+0/Z 0/storeptr2 1./next
+0/Z 0/Z 1./next
+
+; Increment RP
+2/const-1 20/RP 1./next
+
+; Return
+8./ret 7./ret 1./next
+1-y/retaddr 4./ret 1./next
+1-y/retaddr 1-y/retaddr 0/ret
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; Representation of a dictionary word
+;  Length | Contents
+; --------+----------
+;       1 | LINK (previous word)
+;       1 | LEN
+;     LEN | name
+;       1 | immediate flag
+;         | body
+
+
+
+:E
+; Printing a character:
+; 3./ 1-/ 2./ [XX].
+3./ 1-/ 2./ 83/S
+3./ 1-/ 2./ 116/t
+3./ 1-/ 2./ 97/a
+3./ 1-/ 2./ 103/g
+3./ 1-/ 2./ 101/e
+3./ 1-/ 2./ 32/ 
+3./ 1-/ 2./ 49/1
+3./ 1-/ 2./ 46/.
+3./ 1-/ 2./ 46/.
+3./ 1-/ 2./ 46/.
+3./ 1-/ 2./ 10/
+
+; Initialize SP and RP
+19/SP 19/SP 2./next S-/const-S
+1-./ 19/SP 1./next
+20/RP 20/RP 2./next R-/const-R
+1-./ 20/RP 1./next 
+
+; Testing: push A, incr A, push A, reset A, pop A
+3./ 1-x/ x/ 1./
+2/const-1 21/A 1./
+3./ 1-x/ x/ 1./
+21/A 21/A 1./
+3./ 1-X/ X/ 1./
+
+0/Z 0/Z 1-/
 
 ~

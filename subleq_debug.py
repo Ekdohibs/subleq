@@ -27,3 +27,17 @@ while True:
     pc = c
   else:
     pc += 3
+
+LABEL_ADDR = 218
+LABEL_LEN = 70
+LABEL_START = '<'
+
+print("Global vars:", data[:32])
+labels = {}
+for i in range(LABEL_LEN):
+  if data[LABEL_ADDR+i] != 0:
+    labels[chr(ord(LABEL_START)+i)] = data[LABEL_ADDR+i]
+
+print("Labels:", labels)
+print("Stack:", data[labels["S"]:labels["S"]+256])
+#print("Return stack:", data[labels["R"]:labels["R"]+256])
