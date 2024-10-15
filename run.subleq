@@ -171,8 +171,9 @@ The syntax of the new bootstrap assembler is the following:
 - The '.' character will add the position where the next instruction will be
   compiled to V.
 - Any digit 0-9 will do V <- 10*V + [digit].
-- Finally, any character which is a possibly valid label will add the position
+- Any character which is a possibly valid label will add the position
   of that label to V.
+- The tilde character will start execution.
 
 
 
@@ -393,6 +394,7 @@ where R is the return address.
 ;         3 | Variable TMP
 ;         4 | Variable R1
 ;         5 | Variable R2
+;        10 | Variable LR   Kept at zero except when calling B 
 ;        16 | Variable HERE
 ;        17 | Variable POS
 ;        18 | Variable LAST
@@ -402,7 +404,8 @@ where R is the return address.
 ;        22 | Variable B
 ;        23 | Variable C
 ;        24 | Variable I
-;        25 | Variablt DICT
+;        25 | Variable DICT
+;        26 | Variable STATE
 
 ; This is the entry point; jump to the start of the code.
 0/Z 0/Z E/
@@ -465,18 +468,18 @@ where R is the return address.
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; > -> Do mem[-R1] <- -R2
+; > -> Do mem[-R2] <- -R1
 0/retaddr :>
 
-; TMP <- -R2
+; TMP <- -R1
 3/TMP 3/TMP 1./next
-5/R2 3/TMP 1./next
+4/R1 3/TMP 1./next
 
-; Indirect store *(-R1) <- TMP
+; Indirect store *(-R2) <- TMP
 12./storeptr1 11./storeptr1 1./next
 16./storeptr2 15./storeptr2 1./next
-4/R1 5./storeptr1 1./next
-4/R1 9./storeptr2 1./next
+5/R2 5./storeptr1 1./next
+5/R2 9./storeptr2 1./next
 0/storeptr1 3/TMP 1./next
 3/TMP 0/Z 1./next
 0/Z 0/storeptr2 1./next
@@ -489,26 +492,73 @@ where R is the return address.
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; X -> pop variable A from normal stack
-0/retaddr :X
+; B -> beginning of word
+; effect: rpush(I); I = (-LR) + 1; goto mem[-LR]
+; Sequence at beginning of word:
+; 3./ 10/LR B/begin 1./
 
-; ; Clear A
-; 21/A 21/A 1./next
-; ; Decrement SP
-; 1/const1 19/SP 1./next
-; 
-; ; Indirect load *SP -> -Z
-; 12./loadptr 11./loadptr 1./next
-; 19/SP 0/Z 1./next
-; 0/Z 5./loadptr 1./next
-; 0/Z 0/Z 1./next
-; 0/loadptr 0/Z 1./next
-; 
-; ; A <- -Z
-; 0/Z 21/A 1./next
-; ; Clear Z
-; 0/Z 0/Z 1./next
 
+:B
+
+5/R2 5/R2 1./next
+20/RP 5/R2 1./next
+4/R1 4/R1 1./next
+24/I 4/R1 1./next
+3./ 1->/ >/ 1./ ; indirect_store mem[-R2] := -R1
+
+; Increment RP
+2/const-1 20/RP 1./next
+
+; I = (-LR)
+24/I 24/I 1./next
+10/LR 24/I 1./next
+; Clear LR
+10/LR 10/LR N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; N -> next
+; effect: goto mem[I++]
+
+:N
+
+4/R1 4/R1 1./next
+24/I 4/R1 1./next
+3./ 1-@/ @/ 1./next ; R1 := -mem[I]
+2/const-1 24/I 1./next ; I++
+4/R1 4./jmpaddr 1./next
+2./jmpaddr 1./jmpaddr 0/jmpaddr ; goto -R1
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+
+; Representation of a dictionary word
+;  Length | Contents
+; --------+----------
+;     LEN | name
+;       1 | LEN
+;       1 | immediate flag
+;       1 | LINK (previous word) or 0
+;         | body         <--- Pointer to dict at beginning of body
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; EXIT word (e)
+69/E 88/X 73/I 84/T 4/LEN 0/not_immediate 0/LINK :e
+
+; Clear I
+24/I 24/I 1./next
+; Decrement RP
+1/const1 20/RP 1./next
+
+; Clear R1
+4/R1 4/R1 1./next
+20/RP 4/R1 1./next
+3./ 1-@/ @/ 1./ ; indirect_load R1 := -mem[-R1]
+4/R1 24/I 1./next
+
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; >A word (X): pop variable A from normal stack
+62/> 65/A 2/LEN 0/not_immediate e/LINK :X
 
 ; Clear A
 21/A 21/A 1./next
@@ -521,119 +571,227 @@ where R is the return address.
 3./ 1-@/ @/ 1./ ; indirect_load R1 := -mem[-R1]
 4/R1 21/A 1./next
  
-
-; Return
-8./ret 7./ret 1./next
-1-X/retaddr 4./ret 1./next
-1-X/retaddr 1-X/retaddr 0/ret
-
+0/Z 0/Z N/next
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; Y -> pop variable A from return stack
-0/retaddr :Y
+; R>A word (Y): pop variable A from return stack
+82/R 62/> 65/A 3/LEN 0/not_immediate X/LINK :Y
 
 ; Clear A
 21/A 21/A 1./next
 ; Decrement RP
 1/const1 20/RP 1./next
 
-; Indirect load *RP -> -Z
-12./loadptr 11./loadptr 1./next
-20/RP 0/Z 1./next
-0/Z 5./loadptr 1./next
-0/Z 0/Z 1./next
-0/loadptr 0/Z 1./next
+; Clear R1
+4/R1 4/R1 1./next
+20/RP 4/R1 1./next
+3./ 1-@/ @/ 1./ ; indirect_load R1 := -mem[-R1]
+4/R1 21/A 1./next
 
-; A <- -Z
-0/Z 21/A 1./next
-; Clear Z
-0/Z 0/Z 1./next
-
-; Return
-8./ret 7./ret 1./next
-1-Y/retaddr 4./ret 1./next
-1-Y/retaddr 1-Y/retaddr 0/ret
-
+0/Z 0/Z N/next
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; x -> push variable A to normal stack
-0/retaddr :x
+; A> word (x): push variable A to normal stack
+65/A 62/> 2/LEN 0/not_immediate Y/LINK :x
 
-
-4/R1 4/R1 1./next
-19/SP 4/R1 1./next
 5/R2 5/R2 1./next
-21/A 5/R2 1./next
-3./ 1->/ >/ 1./ ; indirect_store mem[-R1] := -R2
-
-; Copy A -> TMP
-; 3/TMP 3/TMP 1./next
-; 21/A 0/Z 1./next
-; 0/Z 3/TMP 1./next
-; 0/Z 0/Z 1./next
-
-; Indirect store *SP <- TMP
-; 18./storeptr1 17./storeptr1 1./next
-; 22./storeptr2 21./storeptr2 1./next
-; 19/SP 0/Z 1./next
-; 0/Z 8./storeptr1 1./next
-; 0/Z 12./storeptr2 1./next
-; 0/Z 0/Z 1./next
-; 0/storeptr1 3/TMP 1./next
-; 3/TMP 0/Z 1./next
-; 0/Z 0/storeptr2 1./next
-; 0/Z 0/Z 1./next
+19/SP 5/R2 1./next
+4/R1 4/R1 1./next
+21/A 4/R1 1./next
+3./ 1->/ >/ 1./ ; indirect_store mem[-R2] := -R1
 
 ; Increment SP
 2/const-1 19/SP 1./next
 
-; Return
-8./ret 7./ret 1./next
-1-x/retaddr 4./ret 1./next
-1-x/retaddr 1-x/retaddr 0/ret
-
+0/Z 0/Z N/next
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; y -> push variable A to return stack
-0/retaddr :y
+; A>R word (y): push variable A to return stack
+65/A 62/> 82/R 3/LEN 0/not_immediate x/LINK :y
 
-; Copy A -> TMP
-3/TMP 3/TMP 1./next
-21/A 0/Z 1./next
-0/Z 3/TMP 1./next
-0/Z 0/Z 1./next
-
-; Indirect store *RP <- TMP
-18./storeptr1 17./storeptr1 1./next
-22./storeptr2 21./storeptr2 1./next
-20/RP 0/Z 1./next
-0/Z 8./storeptr1 1./next
-0/Z 12./storeptr2 1./next
-0/Z 0/Z 1./next
-0/storeptr1 3/TMP 1./next
-3/TMP 0/Z 1./next
-0/Z 0/storeptr2 1./next
-0/Z 0/Z 1./next
+5/R2 5/R2 1./next
+20/RP 5/R2 1./next
+4/R1 4/R1 1./next
+21/A 4/R1 1./next
+3./ 1->/ >/ 1./ ; indirect_store mem[-R2] := -R1
 
 ; Increment RP
 2/const-1 20/RP 1./next
 
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; LDA word (l): A := mem[I++]
+76/L 68/D 65/A 3/LEN 0/not_immediate y/LINK :l
+
+; Clear A
+21/A 21/A 1./next
+
+; A := mem[I]
+4/R1 4/R1 1./next
+24/I 4/R1 1./next
+3./ 1-@/ @/ 1./ ; indirect_load R1 := -mem[-R1]
+4/R1 21/A 1./next
+
+; Increment I
+2/const-1 24/I 1./next
+
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; GT0B word (b): target := mem[I++]; if A > 0: I := target
+71/G 84/T 48/0 66/B 4/LEN 0/not_immediate l/LINK :b
+
+; R1 := -mem[I]
+4/R1 4/R1 1./next
+24/I 4/R1 1./next
+3./ 1-@/ @/ 1./ ; indirect_load R1 := -mem[-R1]
+; Increment I
+2/const-1 24/I 1./next
+
+0/Z 21/A N/next ; exit if A <= 0
+
+24/I 24/I 1./next
+4/R1 24/I 1./next
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; @A (a): A := mem[A]
+64/@ 65/A 2/LEN 0/not_immediate b/LINK :a
+
+; R1 := -mem[A]
+4/R1 4/R1 1./next
+21/A 4/R1 1./next
+3./ 1-@/ @/ 1./ ; indirect_load R1 := -mem[-R1]
+21/A 21/A 1./next
+4/R1 21/A 1./next
+
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; !A word (z): mem[B] <- A
+33/! 65/A 2/LEN 0/not_immediate a/LINK :z
+
+5/R2 5/R2 1./next
+22/B 5/R2 1./next
+4/R1 4/R1 1./next
+21/A 4/R1 1./next
+3./ 1->/ >/ 1./ ; indirect_store mem[-R2] := -R1
+
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; -A word (m): A -= B
+45/- 65/A 2/LEN 0/not_immediate z/LINK :m
+
+22/B 21/A 1./next
+
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; $ word (r): A, B, C := C, A, B
+36/$ 1/LEN 0/not_immediate m/link :r
+
+; R1 <- -A
+4/R1 4/R1 1./next
+21/A 4/R1 1./next
+; R2 <- -B
+5/R2 5/R2 1./next
+22/B 5/R2 1./next
+; B <- -R1
+22/B 22/B 1./next
+4/R1 22/B 1./next
+; R1 <- -C
+4/R1 4/R1 1./next
+23/C 4/R1 1./next
+; A <- -R1
+21/A 21/A 1./next
+4/R1 21/A 1./next
+; C <- -R2
+23/C 23/C 1./next
+5/R2 23/C 1./next
+
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; EQ0 word (Z): A := (A == 0)
+69/E 81/Q 48/0 3/LEN 0/not_immediate m/LINK :Z
+
+0/Z 21/A 4./jmp
+21/A 21/A N/next
+; Now we know A <= 0
+2/const-1 21/A 4./jmp
+; Here A was equal to 0, now is equal to 1
+0/Z 0/Z N/next
+; A was < 0
+21/A 21/A N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; DECA word (d): A -= 1
+; This word could be easily emulated using -A, but doing so would
+; clobber B; instead, it is incredibly useful for this word to be
+; available for memory comparison.
+68/D 69/E 67/C 65/A 4/LEN 0/not_immediate Z/LINK :d
+
+1/const1 21/A 1./jmp
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; MEM<-CMP (C)
+; Inputs: A, B, C, assume A >= 0
+; Output: A <- mem[B-A:B[ == mem[C-A:C[
+
+77/M 69/E 77/M 60/< 45/- 67/C 77/M 80/P 8/LEN 0/not_immediate d/LINK :C
+
+3./ 10/LR B/begin 1./
+
+; Start: if A = 0, then result is 1
+b/GT0B 4./ ; if A > 0, jump over next 3 instrs
+  l/LDA 1/ e/EXIT
+; We know A > 0, compare first char
+; rotate A,B,C, decrement, save pointer on stack and load first char
+r/$ d/DECA x/A> a/@ 
+; again
+r/$ d/DECA x/A> a/@
+m/-A Z/EQ0 b/GT0B 6./ ; if chars were equal, jump over next 5 instrs
+  ; Chars were different: clean stack, set A to 0 and exit
+  X/>A X/>A l/LDA 0/ e/EXIT
+; Restore B, C
+X/>A r/$ r/$ X/>A r/$ r/$
+; Decrement A, branch if chars remain to compare
+d/DECA b/GT0B 4C/start
+; Exit with 1
+l/LDA 1/ e/EXIT
+
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; w -> compile 
+; effect: mem[HERE++] := -R1
+; TODO make word instead
+
+0/retaddr :w
+
+5/R2 5/R2 1./next
+16/HERE 5/R2 1./next
+3./ 1->/ >/ 1./ ; indirect_store mem[-R2] := -R1
+
+; Increment HERE
+2/const-1 16/HERE 1./next
+
 ; Return
 8./ret 7./ret 1./next
-1-y/retaddr 4./ret 1./next
-1-y/retaddr 1-y/retaddr 0/ret
+1-w/retaddr 4./ret 1./next
+1-w/retaddr 1-w/retaddr 0/ret
+
+
+
 
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
-; Representation of a dictionary word
-;  Length | Contents
-; --------+----------
-;       1 | LINK (previous word)
-;       1 | LEN
-;     LEN | name
-;       1 | immediate flag
-;         | body
+; n -> new word
+; Inputs: R1
+0/retaddr :n
 
 
 
@@ -657,13 +815,33 @@ where R is the return address.
 1-./ 19/SP 1./next
 20/RP 20/RP 2./next R-/const-R
 1-./ 20/RP 1./next 
+; Initialize LR
+10/LR 10/LR 1./next
 
-; Testing: push A, incr A, push A, reset A, pop A
-3./ 1-x/ x/ 1./
-2/const-1 21/A 1./
-3./ 1-x/ x/ 1./
-21/A 21/A 1./
-3./ 1-X/ X/ 1./
+
+; Testing
+3./ 10/LR B/begin 1./
+x/A> l/LDA 17/ x/A> a/@ x/A>
+
+l/LDA 32/ r/$ l/LDA 32/ r/$ l/LDA 4/
+C/MEM<-CMP x/A>
+
+1./
+
+
+; Main loop
+
+; : READ-WORD-RAW start: GET-CHAR if(IS-SP, jmp start) PUSH1 loop: GET-CHAR if(IS-SP, EXIT, ADD1 jmp loop) POS SWAP ; 
+; BOOT: loop (READ-WORD-RAW FIND-WORD-RAW EXECUTE)
+
+; boot loop: read/find/execute only??
+; TODO: numbers? -> with a word?
+; TODO: read word
+; TODO: find word
+; TODO: if state && not immediate then execute else compile-word
+; LOOP
+
+
 
 0/Z 0/Z 1-/
 
