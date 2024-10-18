@@ -43,8 +43,8 @@ for i in range(LABEL_LEN):
     labels[chr(ord(LABEL_START)+i)] = data[LABEL_ADDR+i]
 
 print("Labels:", labels)
-print("Stack:", data[labels["S"]:labels["S"]+256])
-#print("Return stack:", data[labels["R"]:labels["R"]+256])
+print("Stack:", data[labels["S"]:data[19]])
+print("Return stack:", data[labels["R"]:data[20]])
 print("Cycles:", iters)
 
 #print("".join(chr(x) if (9 <= x <= 10 or 32 <= x <= 126) else "." for x in data))

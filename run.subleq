@@ -669,8 +669,17 @@ where R is the return address.
 0/Z 0/Z N/next
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; @ (A)
+
+64/@ 1/LEN 0/not_immediate a/LINK :A
+
+3./ 10/LR B/begin 1./
+
+X/>A a/@A x/A> e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; !A word (z): mem[B] <- A
-33/! 65/A 2/LEN 0/not_immediate a/LINK :z
+33/! 65/A 2/LEN 0/not_immediate A/LINK :z
 
 5/R2 5/R2 1./next
 22/B 5/R2 1./next
@@ -737,11 +746,20 @@ where R is the return address.
 0/Z 0/Z N/next
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; MEM<-CMP (C)
-; Inputs: A, B, C, assume A >= 0
-; Output: A <- mem[B-A:B[ == mem[C-A:C[
+; INCA word (i): A += 1
+; This word could be easily emulated using -A, but doing so would
+; clobber B
+73/I 78/N 67/C 65/A 4/LEN 0/not_immediate d/LINK :i
 
-77/M 69/E 77/M 60/< 45/- 67/C 77/M 80/P 8/LEN 0/not_immediate d/LINK :C
+2/const-1 21/A 1./jmp
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; RAWMEMCMP (C)
+; Inputs: A, B, C, assume A >= 0
+; Output: A <- mem[B:B+A[ == mem[C:C+A[
+
+82/R 65/A 87/W 77/M 69/E 77/M 67/C 77/M 80/P 9/LEN 0/not_immediate i/LINK :C
 
 3./ 10/LR B/begin 1./
 
@@ -749,43 +767,221 @@ where R is the return address.
 b/GT0B 4./ ; if A > 0, jump over next 3 instrs
   l/LDA 1/ e/EXIT
 ; We know A > 0, compare first char
-; rotate A,B,C, decrement, save pointer on stack and load first char
-r/$ d/DECA x/A> a/@ 
+; rotate A,B,C, save pointer on stack and load first char
+r/$ x/A> a/@ 
 ; again
-r/$ d/DECA x/A> a/@
+r/$ x/A> a/@
 m/-A Z/EQ0 b/GT0B 6./ ; if chars were equal, jump over next 5 instrs
   ; Chars were different: clean stack, set A to 0 and exit
   X/>A X/>A l/LDA 0/ e/EXIT
-; Restore B, C
-X/>A r/$ r/$ X/>A r/$ r/$
+; Restore B, C and increment
+X/>A i/INCA r/$ r/$ X/>A i/INCA r/$ r/$
 ; Decrement A, branch if chars remain to compare
 d/DECA b/GT0B 4C/start
 ; Exit with 1
 l/LDA 1/ e/EXIT
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; GET-CHAR (g)
+; Effect: push mem[POS++]
+
+71/G 69/E 84/T 45/- 67/C 72/H 65/A 82/R 8/LEN 0/not_immediate C/LINK :g
+
+3./ 10/LR B/begin 1./
+
+l/LDA 17/POS a/@ a/@ r/$
+l/LDA 17/POS r/$
+l/LDA 17/POS a/@ i/INCA z/!A r/$
+x/A> e/EXIT
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
-; w -> compile 
-; effect: mem[HERE++] := -R1
-; TODO make word instead
+; , (w)
+; effect: mem[HERE++] := pop()
 
-0/retaddr :w
+44/, 1/LEN 0/not_immediate g/LINK :w
 
-5/R2 5/R2 1./next
-16/HERE 5/R2 1./next
-3./ 1->/ >/ 1./ ; indirect_store mem[-R2] := -R1
+3./ 10/LR B/begin 1./
 
-; Increment HERE
-2/const-1 16/HERE 1./next
+; mem[HERE] = pop()
+l/LDA 16/HERE a/@ r/$
+X/>A z/!A
+; HERE++
+l/LDA 16/HERE r/$
+l/LDA 16/HERE a/@ i/INCA z/!A
 
-; Return
-8./ret 7./ret 1./next
-1-w/retaddr 4./ret 1./next
-1-w/retaddr 1-w/retaddr 0/ret
+e/EXIT
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; - (M)
 
+45/- 1/LEN 0/not_immediate w/LINK :M
 
+3./ 10/LR B/begin 1./
 
+X/>A r/$ X/>A m/-A x/A> e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; SWAP (s)
+
+83/S 87/W 65/A 80/P 4/LEN 0/not_immediate M/LINK :s
+
+3./ 10/LR B/begin 1./
+
+X/>A r/$ X/>A r/$ r/$ x/A> r/$ x/A> e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; DUP (D)
+
+68/D 85/U 80/P 3/LEN 0/not_immediate s/LINK :D
+
+3./ 10/LR B/begin 1./
+
+X/>A x/A> x/A> e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; OVER (O)
+
+79/O 86/V 89/E 82/R 4/LEN 0/not_immediate D/LINK :O
+
+3./ 10/LR B/begin 1./
+
+X/>A r/$ X/>A x/A> r/$ r/$ x/A> r/$ x/A> e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; READ-WORD (p)
+
+82/R 69/E 65/A 68/D 45/- 87/W 79/O 82/R 68/D 9/LEN 0/not_immediate O/LINK :p
+
+3./ 10/LR B/begin 1./
+
+; get char and subtract, >0 iff space
+l/LDA 33/ x/A> g/GET-CHAR M/-
+X/>A b/GT0B 4p/start
+
+; push POS-1 and POS on stack
+l/LDA 17/POS a/@ d/DECA x/A> i/INCA x/A>
+
+; get char and subtract, >0 iff not space
+g/GET-CHAR l/LDA 32/ x/A> M/-
+X/>A b/GT0B 7-./loop
+
+; push new POS on stack, swap and subtract
+l/LDA 17/POS a/@ x/A>
+s/SWAP M/-
+
+e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; >R (H)
+; Since calling this word puts a value on the return stack, the implementation
+; is slightly more complex than would appear at first
+
+62/> 82/R 2/LEN 0/not_immediate p/LINK :H
+
+3./ 10/LR B/begin 1./
+
+; Pop return address from return stack
+Y/R>A r/$
+; Pop value from stack and push it on return stack
+X/>A y/A>R
+; Restore return address
+r/$ r/$ y/A>R
+
+e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; R> (h)
+; Since calling this word puts a value on the return stack, the implementation
+; is slightly more complex than would appear at first
+
+82/R 62/> 2/LEN 0/not_immediate H/LINK :h
+
+3./ 10/LR B/begin 1./
+
+; Pop return address from return stack
+Y/R>A r/$
+; Pop value from return stack and push it on stack
+Y/R>A x/A>
+; Restore return address
+r/$ r/$ y/A>R
+
+e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; STR= (c)
+; addr1 len1 addr2 len2 -- x
+; where x = mem[addr1:addr1+len1[ == mem[addr2:addr2+len2[
+
+83/S 84/T 82/R 61/= 4/LEN 0/not_immediate h/LINK :c
+
+3./ 10/LR B/begin 1./
+
+; pop len2, addr2, len1 from stack
+X/>A r/$ X/>A r/$ X/>A r/$
+; at this point, addr1 in on the stack,
+; len2 is in A, addr2 in C, len1 in B
+m/-A Z/EQ0 b/GT0B 6./
+  ; Not the same size: pop addr1 and return not equal
+  X/>A l/LDA 0/ x/A> e/EXIT
+; Now lengths are equal and in B
+X/>A r/$ r/$
+C/RAWMEMCMP x/A>
+e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; FIND-WORD (F)
+; addr1 len1 -- xt or 0
+
+70/F 73/I 78/N 68/D 45/- 87/W 79/O 82/R 68/D 9/LEN 0/not_immediate c/LINK :F
+
+3./ 10/LR B/begin 1./
+
+; Load from dict and put in A
+l/LDA 25/DICT a/@A
+
+; loop:
+y/A>R
+
+; Duplicate addr1 len1
+O/OVER O/OVER
+
+; Copy current search pos from return stack
+Y/R>A y/A>R x/A>
+
+; Get addr & len from it
+l/LDA 3/ x/A> M/- D/DUP A/@ s/SWAP O/OVER M/- s/SWAP
+
+; Compare
+c/STR= X/>A Z/EQ0 b/GT0B 6./
+  ; This word matched: clean stack & pop from return stack then exit
+  X/>A X/>A Y/R>A x/A> e/EXIT
+
+; Load next pointer and loop
+l/LDA 1/ r/$ Y/R>A m/-A a/@A b/GT0B 7F/loop
+
+; Clear stack and push 0
+X/>A X/>A l/LDA 0/ x/A>
+
+e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; EXEC-A (u)
+
+69/E 88/X 69/E 67/C 45/- 65/A 6/LEN 0/not_immediate F/LINK :u
+
+21/A 0/Z 1./next
+0/Z 7./jmpaddr 1./next
+0/Z 0/Z 1./next
+2./jmpaddr 1./jmpaddr 0/jmpaddr
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; EXECUTE (U)
+
+69/E 88/X 69/E 67/C 85/U 84/T 69/E 8/LEN 0/not_immediate u/LINK :U
+
+3./ 10/LR B/begin 1./
+
+X/>A u/EXEC-A e/EXIT
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 
@@ -817,21 +1013,34 @@ l/LDA 1/ e/EXIT
 1-./ 20/RP 1./next 
 ; Initialize LR
 10/LR 10/LR 1./next
+; Initialize DICT
+25/DICT 25/DICT 2./next U-/const-startdict
+1-./ 25/DICT 1./next
 
 
 ; Testing
 3./ 10/LR B/begin 1./
-x/A> l/LDA 17/ x/A> a/@ x/A>
 
-l/LDA 32/ r/$ l/LDA 32/ r/$ l/LDA 4/
-C/MEM<-CMP x/A>
+:P
+
+p/READ-WORD F/FIND-WORD U/EXECUTE l/LDA 1/ b/GT0B P/
+
+; x/A> l/LDA 17/ x/A> a/@ x/A>
+
+; l/LDA 32/ r/$ l/LDA 32/ r/$ l/LDA 4/
+; C/MEM<-CMP x/A> p/READ-WORD
+; O/OVER O/OVER
+
+; F/FIND-WORD
+
+; l/LDA 424242/ x/A>
 
 1./
 
 
 ; Main loop
 
-; : READ-WORD-RAW start: GET-CHAR if(IS-SP, jmp start) PUSH1 loop: GET-CHAR if(IS-SP, EXIT, ADD1 jmp loop) POS SWAP ; 
+; : READ-WORD-RAW start: GET-CHAR if(IS-SP, jmp start) PUSH1 loop: GET-CHAR if(IS-SP, POS SWAP EXIT, ADD1 jmp loop) ; 
 ; BOOT: loop (READ-WORD-RAW FIND-WORD-RAW EXECUTE)
 
 ; boot loop: read/find/execute only??
@@ -846,3 +1055,5 @@ C/MEM<-CMP x/A>
 0/Z 0/Z 1-/
 
 ~
+
+READ-WORD FIND-WORD
