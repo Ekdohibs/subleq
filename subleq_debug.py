@@ -7,8 +7,6 @@ f.close()
 pc = 0
 iters = 0
 while True:
-  #if pc == 124: print("Stage 0 cycles", iters)
-  #elif pc == 581: print("Stage 1 cycles", iters)
   iters += 1
   if pc < 0 or pc + 2 >= len(data):
     break

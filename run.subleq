@@ -195,7 +195,7 @@ and POS, the current scanning position.
 Load constants:
 124| 0/Z 0/Z 127/next
 127| 2/const-1 2/const-1 131/next 1/
-130| 130/ 2/const-1 134/next
+131| 130/ 2/const-1 134/next
 134| 1/const1 1/const1 137/next
 137| 2/const-1 1/const1 140/next
 
@@ -690,8 +690,16 @@ X/>A a/@A x/A> e/EXIT
 0/Z 0/Z N/next
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; ! word (W)
+33/! 1/LEN 0/not_immediate z/LINK :W
+
+3./ 10/LR B/begin 1./
+
+X/>A r/$ X/>A z/!A e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; -A word (m): A -= B
-45/- 65/A 2/LEN 0/not_immediate z/LINK :m
+45/- 65/A 2/LEN 0/not_immediate W/LINK :m
 
 22/B 21/A 1./next
 
@@ -872,11 +880,37 @@ s/SWAP M/-
 e/EXIT
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; PARSE (P)
+
+80/P 65/A 82/R 83/S 69/E 5/LEN 0/not_immediate p/LINK :P
+
+3./ 10/LR B/begin 1./
+
+; move char to compare to to return stack
+X/>A y/A>R
+
+; push POS twice on stack
+l/LDA 17/POS a/@ x/A> x/A>
+
+; get char and subtract
+g/GET-CHAR Y/R>A y/A>R x/A> M/-
+X/>A Z/EQ0 Z/EQ0 b/GT0B 9-./loop
+
+; push new POS - 1 on stack, swap and subtract
+l/LDA 17/POS a/@A d/DECA x/A>
+s/SWAP M/-
+
+; remove char to compare from return stack
+Y/R>A
+
+e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; >R (H)
 ; Since calling this word puts a value on the return stack, the implementation
 ; is slightly more complex than would appear at first
 
-62/> 82/R 2/LEN 0/not_immediate p/LINK :H
+62/> 82/R 2/LEN 0/not_immediate P/LINK :H
 
 3./ 10/LR B/begin 1./
 
@@ -977,19 +1011,194 @@ e/EXIT
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; EXECUTE (U)
 
-69/E 88/X 69/E 67/C 85/U 84/T 69/E 8/LEN 0/not_immediate u/LINK :U
+69/E 88/X 69/E 67/C 85/U 84/T 69/E 7/LEN 0/not_immediate u/LINK :U
 
 3./ 10/LR B/begin 1./
 
 X/>A u/EXEC-A e/EXIT
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; EMIT-A (q)
 
-; n -> new word
-; Inputs: R1
-0/retaddr :n
+69/E 77/M 73/I 84/T 45/- 65/A 6/LEN 0/not_immediate U/LINK :q
 
+21/A 1-/ 1./next
+0/Z 0/Z N/next
 
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; EMIT (Q)
+
+69/E 77/M 73/I 84/T 4/LEN 0/not_immediate q/LINK :Q
+
+3./ 10/LR B/begin 1./
+
+X/>A q/EMIT-A e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; TYPE (T)
+
+84/T 89/Y 80/P 69/E 4/LEN 0/not_immediate Q/LINK :T
+
+3./ 10/LR B/begin 1./
+
+X/>A b/GT0B 3./
+  X/>A e/EXIT
+r/$ X/>A i/INCA x/A> d/DECA a/@A q/EMIT-A
+r/$ r/$ d/DECA b/GT0B 11-./
+
+X/>A e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; A*=10 (^)
+
+65/A 42/* 61/= 49/1 48/0 5/LEN 0/not_immediate T/LINK :^
+
+21/A 0/Z 1./next ; Z = -A0
+0/Z 21/A 1./next ; A = 2*A0
+21/A 0/Z 1./next ; Z = -3*A0
+0/Z 21/A 1./next ; A = 5*A0
+0/Z 0/Z 1./next
+21/A 0/Z 1./next ; Z = -5*A0
+0/Z 21/A 1./next ; A = 10*A0
+0/Z 0/Z N/next
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; NUMBER (n)
+; ( addr len -- [ 0 | num 1 ] )
+
+78/N 85/U 77/M 66/B 69/E 82/R 6/LEN 0/not_immediate ^/LINK :n
+
+3./ 10/LR B/begin 1./
+
+O/OVER A/@ l/LDA 45/- x/A> M/- X/>A Z/EQ0 Z/EQ0 b/GT0B 13./
+  ; Skip first character
+  l/LDA 1/ x/A> M/- s/SWAP l/LDA 1-/ x/A> M/- s/SWAP l/LDA 0/
+; Push A on return stack: either 1 for no sign, or 0 for negative sign
+y/A>R
+
+; Push accumulator on return stack
+l/LDA 0/ y/A>R
+
+:G
+D/DUP X/>A b/GT0B 17./
+  X/>A X/>A Y/R>A x/A>
+  Y/R>A b/GT0B 6./
+    ; Negate result
+    l/LDA 0/ x/A> s/SWAP M/-
+  l/LDA 1/ x/A> e/EXIT
+  ; l/LDA 1-/ x/A> U/EXECUTE
+
+O/OVER A/@ D/DUP l/LDA 47/ x/A> M/- X/>A b/GT0B 10./
+  ; Not a digit: fail
+  X/>A X/>A X/>A Y/R>A Y/R>A l/LDA 0/ x/A> e/EXIT
+D/DUP l/LDA 57/ x/A> M/- X/>A b/GT0B 16-./ ; Jump to fail code
+
+; Update acc
+l/LDA 48/ x/A> M/- l/LDA 0/ x/A>
+Y/R>A ^/A*=10 x/A> M/- M/- X/>A y/A>R
+
+; Go to next char
+l/LDA 1/ x/A> M/- s/SWAP l/LDA 1-/ x/A> M/- s/SWAP
+
+l/LDA 1/ b/GT0B G/
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; FIND-OR-NUMBER (f)
+; ( addr len -- [ xt 0 | num 1 ] )
+
+70/F 73/I 78/N 68/D 45/- 79/O 82/R 45/- 78/N 85/U 77/M 66/B 69/E 82/R 14/LEN 0/not_immediate n/LINK :f
+
+3./ 10/LR B/begin 1./
+
+O/OVER O/OVER F/FIND-WORD D/DUP X/>A Z/EQ0 b/GT0B 9./
+  s/SWAP X/>A s/SWAP X/>A l/LDA 0/ x/A> e/EXIT
+X/>A O/OVER O/OVER n/NUMBER X/>A Z/EQ0 b/GT0B 9./
+  s/SWAP X/>A s/SWAP X/>A l/LDA 1/ x/A> e/EXIT
+; Type error message and exit
+T/TYPE l/LDA 63/? q/EMIT-A l/LDA 10/ q/EMIT-A l/LDA 1-/ u/EXEC-A
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; INTERPRET-WORD (j)
+
+73/I 78/N 84/T 69/E 82/R 80/P 82/R 69/E 84/T 45/- 87/W 79/O 82/R 68/D 14/LEN 0/not_immediate f/LINK :j
+
+3./ 10/LR B/begin 1./
+
+f/FIND-OR-NUMBER X/>A b/GT0B 2./
+  U/EXECUTE
+e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; COMPILE-WORD (J)
+
+67/C 79/O 77/M 80/P 73/I 76/L 69/E 45/- 87/W 79/O 82/R 68/D 12/LEN 0/not_immediate j/LINK :J
+
+3./ 10/LR B/begin 1./
+
+f/FIND-OR-NUMBER X/>A b/GT0B 14./
+  D/DUP l/LDA 2/ x/A> M/- A/@ X/>A b/GT0B 3./
+    ; Not immediate: compile
+    w/, e/EXIT
+  ; Immediate: execute
+  U/EXECUTE e/EXIT
+; Number: compile LDA, [num], A>
+l/LDA l/LDA x/A> w/,
+w/,
+l/LDA x/A> x/A> w/,
+e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; COMPILE-STR (I)
+
+67/C 79/O 77/M 80/P 73/I 76/L 69/E 45/- 83/S 84/T 82/R 11/LEN 0/not_immediate J/LINK :I
+
+3./ 10/LR B/begin 1./
+
+D/DUP X/>A b/GT0B 4./
+  X/>A X/>A e/EXIT
+O/OVER A/@ w/,
+
+; Next char
+l/LDA 1/ x/A> M/- s/SWAP l/LDA 1-/ x/A> M/- s/SWAP
+
+l/LDA 1/ b/GT0B 4I/
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; : (k)
+
+58/: 1/LEN 0/not_immediate I/LINK :k
+
+3./ 10/LR B/begin 1./
+
+p/READ-WORD s/SWAP O/OVER I/COMPILE-STR w/, ; Name & len
+l/LDA 0/ x/A> w/, ; Immediate flag
+l/LDA 25/DICT a/@A x/A> w/, ; Link
+
+l/LDA 25/DICT r/$ l/LDA 16/HERE a/@A z/!A ; Update dict
+
+; Calling sequence: 3./ 10/LR B/begin 1./
+l/LDA 16/HERE a/@A x/A> x/A>
+l/LDA 3-/ x/A> M/- w/,
+l/LDA 10/LR x/A> w/,
+l/LDA B/begin x/A> w/,
+l/LDA 4-/ x/A> M/- w/,
+
+l/LDA 26/STATE r/$ l/LDA 1/ z/!A ; STATE := 1
+
+e/EXIT
+
+;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
+; ; (K)
+
+59/semicolon 1/LEN 1/immediate k/LINK :K
+
+3./ 10/LR B/begin 1./
+
+l/LDA e/EXIT x/A> w/,
+
+l/LDA 26/STATE r/$ l/LDA 0/ z/!A ; STATE := 0
+
+e/EXIT
 
 :E
 ; Printing a character:
@@ -1014,46 +1223,47 @@ X/>A u/EXEC-A e/EXIT
 ; Initialize LR
 10/LR 10/LR 1./next
 ; Initialize DICT
-25/DICT 25/DICT 2./next U-/const-startdict
+25/DICT 25/DICT 2./next K-/const-startdict
 1-./ 25/DICT 1./next
-
+; Intialize STATE
+26/STATE 26/STATE 1./next
 
 ; Testing
 3./ 10/LR B/begin 1./
 
-:P
-
-p/READ-WORD F/FIND-WORD U/EXECUTE l/LDA 1/ b/GT0B P/
-
-; x/A> l/LDA 17/ x/A> a/@ x/A>
-
-; l/LDA 32/ r/$ l/LDA 32/ r/$ l/LDA 4/
-; C/MEM<-CMP x/A> p/READ-WORD
-; O/OVER O/OVER
-
-; F/FIND-WORD
-
-; l/LDA 424242/ x/A>
-
-1./
-
-
-; Main loop
-
-; : READ-WORD-RAW start: GET-CHAR if(IS-SP, jmp start) PUSH1 loop: GET-CHAR if(IS-SP, POS SWAP EXIT, ADD1 jmp loop) ; 
-; BOOT: loop (READ-WORD-RAW FIND-WORD-RAW EXECUTE)
-
-; boot loop: read/find/execute only??
-; TODO: numbers? -> with a word?
-; TODO: read word
-; TODO: find word
-; TODO: if state && not immediate then execute else compile-word
-; LOOP
-
-
-
-0/Z 0/Z 1-/
+:t
+p/READ-WORD l/LDA 26/STATE a/@A b/GT0B 6./
+  j/INTERPRET-WORD l/LDA 1/ b/GT0B t/
+J/COMPILE-WORD l/LDA 1/ b/GT0B t/
 
 ~
 
-READ-WORD FIND-WORD
+: IMMEDIATE 1 25 @ 2 - ! ;
+: ( 41 PARSE >A >A ; IMMEDIATE
+: \ 10 PARSE >A >A ; IMMEDIATE
+
+\ Now we have ( ) comments and line comments.
+
+: DICT 25 ;
+: STATE 26 ;
+: DROP >A ;
+
+: [ 0 STATE ! ; IMMEDIATE
+: ] 1 STATE ! ;
+: LITERAL
+  ( Inline the behaviour of LITERAL inside itself... )
+  LDA LDA A> ,
+  ,
+  LDA A> A> ,
+; IMMEDIATE
+
+: POSTPONE READ-WORD FIND-WORD , ; IMMEDIATE
+: ' READ-WORD FIND-WORD ;
+: ['] ' POSTPONE LITERAL ; IMMEDIATE
+
+
+
+GET-CHAR " PARSE Stage 2...
+" TYPE
+
+-1 EXECUTE
