@@ -1244,6 +1244,11 @@ J/COMPILE-WORD l/LDA 1/ b/GT0B t/
 
 \ Now we have ( ) comments and line comments.
 
+: CR 10 EMIT ;
+: ." 34 PARSE TYPE ;
+." Stage 2..." CR
+
+: HERE 16 @ ;
 : DICT 25 ;
 : STATE 26 ;
 : DROP >A ;
@@ -1261,9 +1266,49 @@ J/COMPILE-WORD l/LDA 1/ b/GT0B t/
 : ' READ-WORD FIND-WORD ;
 : ['] ' POSTPONE LITERAL ; IMMEDIATE
 
+( IF/THEN/ELSE words )
+: IF
+  ['] >A ,
+  ['] EQ0 ,
+  ['] GT0B ,
+  HERE 0 , \ Reference to be filled by ELSE/THEN
+; IMMEDIATE
 
+: THEN HERE SWAP ! ; IMMEDIATE
 
-GET-CHAR " PARSE Stage 2...
-" TYPE
+: ELSE
+  ['] LDA ,
+  1 ,
+  ['] GT0B ,
+  HERE 0 , \ Reference to be filled by THEN
+  SWAP HERE SWAP !
+; IMMEDIATE
 
--1 EXECUTE
+( BEGIN/UNTIL/REPEAT/WHILE )
+: BEGIN HERE ; IMMEDIATE
+
+: UNTIL
+  ['] >A ,
+  ['] EQ0 ,
+  ['] GT0B ,
+  ,
+; IMMEDIATE
+
+: REPEAT
+  ['] LDA ,
+  1 ,
+  ['] GT0B ,
+  ,
+  HERE SWAP !
+; IMMEDIATE
+
+: WHILE
+  ['] >A ,
+  ['] EQ0 ,
+  ['] GT0B ,
+  ,
+  HERE SWAP 0 ,
+; IMMEDIATE
+
+: QUIT -1 EXECUTE ;
+QUIT
